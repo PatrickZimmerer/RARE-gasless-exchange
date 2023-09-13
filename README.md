@@ -1,3 +1,9 @@
+# Install the dependency with specific version
+
+```shell
+forge install openzeppelin/openzeppelin-contracts@v4.9.2
+```
+
 ## Foundry
 
 **Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
@@ -11,7 +17,7 @@ Foundry consists of:
 
 ## Documentation
 
-https://book.getfoundry.sh/
+<https://book.getfoundry.sh/>
 
 ## Usage
 
