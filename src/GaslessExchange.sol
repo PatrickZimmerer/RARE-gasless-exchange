@@ -3,17 +3,19 @@ pragma solidity =0.8.19;
 
 import {IERC20} from "openzeppelin/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "openzeppelin/token/ERC20/extensions/IERC20Permit.sol";
-
-import {MinimalForwarder} from "openzeppelin/metatx/MinimalForwarder.sol";
 import {ERC20Permit} from "openzeppelin/token/ERC20/extensions/draft-ERC20Permit.sol";
 import {ERC2771Context} from "openzeppelin/metatx/ERC2771Context.sol";
 import {ReentrancyGuard} from "openzeppelin/security/ReentrancyGuard.sol";
 
-contract MyMinimalForwarder is MinimalForwarder {}
-
 contract GaslessExchange is ERC2771Context, ReentrancyGuard {
     ERC20Permit public immutable tokenA;
     ERC20Permit public immutable tokenB;
+
+    error GaslessExchange__WrongFromTokenAddress();
+    error GaslessExchange__WrongToTokenAddress();
+    error GaslessExchange__NotPermitted();
+    error GaslessExchange__NotSameAmount();
+    error GaslessExchange__MissmatchInOrder();
 
     struct Order {
         address from;
@@ -39,7 +41,7 @@ contract GaslessExchange is ERC2771Context, ReentrancyGuard {
         tokenB = ERC20Permit(address(_tokenB));
     }
 
-    function mactchOrders(
+    function matchOrders(
         Order[] calldata orders
     ) external nonReentrant returns (bool success) {
         uint256 currentTokenAAmount;
@@ -47,26 +49,27 @@ contract GaslessExchange is ERC2771Context, ReentrancyGuard {
 
         uint256 length = orders.length;
 
-        for (uint256 i = 0; i < length; i++) {
+        // loop through each order and transfer tokens to gasless exchange
+        for (uint256 i = 0; i < length; ) {
             Order calldata order = orders[i];
 
-            require(
-                order.from == address(tokenA) || order.from == address(tokenB),
-                "from token is either tokenA or tokenB"
-            );
-            require(
-                order.to == address(tokenB) || order.to == address(tokenA),
-                "to token is either tokenA or tokenB"
-            );
+            if (
+                (order.from != address(tokenA) && order.from != address(tokenB))
+            ) {
+                revert GaslessExchange__WrongFromTokenAddress();
+            }
 
-            require(
-                order.spender == address(this),
-                "must permit the token first"
-            );
-            require(
-                order.fromAmount == order.value,
-                "amount to sell must be equal to permited value"
-            );
+            if ((order.to != address(tokenB) && order.to != address(tokenA))) {
+                revert GaslessExchange__WrongToTokenAddress();
+            }
+
+            if (order.spender != address(this)) {
+                revert GaslessExchange__NotPermitted();
+            }
+
+            if (order.fromAmount != order.value) {
+                revert GaslessExchange__NotSameAmount();
+            }
 
             if (order.from == address(tokenA)) {
                 currentTokenAAmount += order.fromAmount;
@@ -105,10 +108,14 @@ contract GaslessExchange is ERC2771Context, ReentrancyGuard {
                     order.fromAmount
                 );
             }
+            unchecked {
+                ++i;
+            }
         }
 
-        for (uint256 j = 0; j < length; j++) {
-            Order calldata order = orders[j];
+        // loop again and and transfer tokens to new owners
+        for (uint256 i = 0; i < length; ) {
+            Order calldata order = orders[i];
 
             if (order.to == address(tokenA)) {
                 currentTokenAAmount -= order.toAmount;
@@ -117,12 +124,15 @@ contract GaslessExchange is ERC2771Context, ReentrancyGuard {
                 currentTokenBAmount -= order.toAmount;
                 tokenB.transfer(order.owner, order.toAmount);
             }
+            unchecked {
+                ++i;
+            }
         }
 
-        require(
-            currentTokenAAmount == 0 && currentTokenBAmount == 0,
-            "each order did not match"
-        );
+        if (currentTokenAAmount != 0 || currentTokenBAmount != 0) {
+            revert GaslessExchange__MissmatchInOrder();
+        }
+
         success = true;
     }
 }
